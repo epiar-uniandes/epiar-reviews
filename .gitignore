@@ -226,3 +226,6 @@ __marimo__/
 # produced later and handled separately.
 data/raw/
 search/logs/
+
+# OpenAlex API key. A credential, never committed.
+openalex_key.txt
