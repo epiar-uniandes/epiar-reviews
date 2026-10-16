@@ -15,7 +15,7 @@ YEAR_MIN = 1990
 # search runs once against a predefined date, so that two people running
 # this code on different days retrieve the same records. Set it before the
 # first real run and do not change it afterwards. Format YYYY-MM-DD.
-SEARCH_CUTOFF = None
+SEARCH_CUTOFF = "2026-10-01"
 
 # Which intervention line to search. One module per line, terms_line5.py and so on.
 ACTIVE_LINE = "line5"
