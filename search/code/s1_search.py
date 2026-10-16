@@ -23,6 +23,16 @@ import terms_line5
 
 OPENALEX_WORKS = "https://api.openalex.org/works"
 
+
+# OpenAlex requires an API key for cursor paging. It is read from a file
+# that git ignores, never written into the code.
+API_KEY = config.openalex_api_key()
+
+def redact(text):
+    """Remove the API key before anything is printed or written to a log."""
+    return text.replace(API_KEY, "REDACTED")
+
+
 # Only these fields are requested. Asking for the whole record would move far
 # more data than the review needs.
 OPENALEX_FIELDS = (
@@ -115,6 +125,11 @@ def venue(work):
     return (location.get("source") or {}).get("display_name", "")
 
 
+def one_line(text):
+    """Collapse line breaks and repeated spaces, so one record is one line."""
+    return " ".join(text.split())
+
+
 def to_row(work, block, retrieved_at):
     """Turn one OpenAlex record into one row of the CSV.
 
@@ -128,9 +143,9 @@ def to_row(work, block, retrieved_at):
         "source": "openalex",
         "record_id": work.get("id", ""),
         "doi": work.get("doi", "") or "",
-        "title": work.get("display_name", "") or "",
-        "abstract": abstract_from_inverted_index(
-            work.get("abstract_inverted_index")),
+        "title": one_line(work.get("display_name", "") or ""),
+        "abstract": one_line(abstract_from_inverted_index(
+            work.get("abstract_inverted_index"))),
         "publication_year": work.get("publication_year", ""),
         "publication_date": work.get("publication_date", "") or "",
         "record_language": work.get("language", "") or "",
@@ -153,7 +168,7 @@ def download_block(block, retrieved_at):
         "filter": openalex_date_filter(),
         "select": OPENALEX_FIELDS,
         "per_page": config.PAGE_SIZE,
-        "mailto": config.CONTACT_EMAIL,
+        "api_key": API_KEY,
     }
 
     rows = []
@@ -223,7 +238,7 @@ def main():
                 "terms": block["terms"],
                 "query": openalex_query(block["terms"]),
                 "filter": openalex_date_filter(),
-                "first_request_url": url,
+                "first_request_url": redact(url),
                 "records_reported": expected,
                 "records_written": len(rows),
                 "retrieved_at": retrieved_at,
@@ -239,3 +254,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+
+
+
