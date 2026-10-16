@@ -15,7 +15,7 @@ YEAR_MIN = 1990
 # search runs once against a predefined date, so that two people running
 # this code on different days retrieve the same records. Set it before the
 # first real run and do not change it afterwards. Format YYYY-MM-DD.
-SEARCH_CUTOFF = "2026-10-01"
+SEARCH_CUTOFF = "2026-08-17"
 
 # Which intervention line to search. One module per line, terms_line5.py and so on.
 ACTIVE_LINE = "line5"
@@ -23,3 +23,9 @@ ACTIVE_LINE = "line5"
 # Where results and logs are written.
 OUTPUT_DIR = ROOT.parent.parent / "data" / "raw"
 LOG_DIR = ROOT.parent / "logs"
+
+# How many records OpenAlex returns per request, and how long to wait
+# between requests. The pause is courtesy, not speed.
+PAGE_SIZE = 200
+REQUEST_PAUSE = 1.0
+
