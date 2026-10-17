@@ -46,3 +46,11 @@ def openalex_api_key():
     if not key:
         raise SystemExit(f"{KEY_FILE} is empty.")
     return key
+
+# Education anchor added to each World Bank query, matched to the language
+# of the term, as registered in the Query strings field.
+EDUCATION_ANCHORS = {
+    "en": "education",
+    "es": "educación",
+    "pt": "educação",
+}

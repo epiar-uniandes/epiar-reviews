@@ -1,7 +1,9 @@
 """Step 2 of the search pipeline. ERIC.
 
 Downloads the records ERIC holds for the English block of each
-sub-intervention of the active line, and writes them to one CSV file.
+sub-intervention of the active line, and writes them to one CSV file,
+together with a run log recording every query sent, its parameters, the
+date it was run and how many records it returned.
 
 Three things differ from OpenAlex and are handled here:
 
@@ -19,6 +21,7 @@ marked _TEST.
 """
 
 import csv
+import json
 import sys
 import time
 from datetime import datetime, timezone
@@ -113,6 +116,11 @@ def sanity_check():
     print()
 
 
+def one_line(text):
+    """Collapse line breaks and repeated spaces, so one record is one line."""
+    return " ".join(str(text).split())
+
+
 def to_row(doc, block, retrieved_at):
     """Turn one ERIC record into one row of the CSV."""
     author = doc.get("author", "")
@@ -142,17 +150,12 @@ def to_row(doc, block, retrieved_at):
     }
 
 
-def one_line(text):
-    """Collapse line breaks and repeated spaces, so one record is one line."""
-    return " ".join(str(text).split())
-
-
 def download_block(block, writer, handle):
     """Download every ERIC record for one block, page by page.
 
     Paging is by offset, because ERIC has no cursor. Records outside the
     registered year range are dropped here rather than in the query, so
-    that the count that was dropped is known and can be reported.
+    that the number dropped is known and can be reported.
     """
     query = eric_query(block["terms"])
     total = request(query, 1, 0).get("numFound", 0)
@@ -187,7 +190,6 @@ def main():
                  "The search cannot run without a fixed cut-off date.")
 
     testing = "--test" in sys.argv
-       
     suffix = "_TEST" if testing else ""
 
     # Only the English block of each sub-intervention, as registered.
@@ -200,27 +202,70 @@ def main():
     sanity_check()
 
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    config.LOG_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).date().isoformat()
     csv_path = config.OUTPUT_DIR / f"{terms_line5.LINE}_eric_{stamp}{suffix}.csv"
+    log_path = config.LOG_DIR / f"{terms_line5.LINE}_eric_{stamp}{suffix}.json"
 
     print(f"Years {config.YEAR_MIN} to {YEAR_MAX}. ERIC stores a year and "
           f"not a day, so records of {YEAR_MAX} published after "
           f"{config.SEARCH_CUTOFF} cannot be excluded.\n")
 
-    totals = []
+    log = {
+        "line": terms_line5.LINE,
+        "source": "eric",
+        "year_min": config.YEAR_MIN,
+        "cutoff": config.SEARCH_CUTOFF,
+        "year_max": YEAR_MAX,
+        "note": ("ERIC stores a publication year and not a day, so records "
+                 "of the cut-off year published after the cut-off day "
+                 "cannot be excluded."),
+        "retrieved_at": datetime.now(timezone.utc).isoformat(
+            timespec="seconds"),
+        "csv": csv_path.name,
+        "blocks": [],
+    }
+
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
         writer.writeheader()
         for block in blocks:
             print(f"{block['subintervention_label']}, {block['language']}")
-            totals.append((block["subintervention"],)
-                          + download_block(block, writer, handle))
+            total, kept, dropped = download_block(block, writer, handle)
+            log["blocks"].append({
+                "subintervention": block["subintervention"],
+                "language": block["language"],
+                "terms": block["terms"],
+                "query": eric_query(block["terms"]),
+                "records_reported": total,
+                "records_written": kept,
+                "records_outside_years": dropped,
+                "accounted_for": kept + dropped == total,
+            })
 
-    written = sum(t[2] for t in totals)
-    dropped = sum(t[3] for t in totals)
+    log_path.write_text(json.dumps(log, indent=2, ensure_ascii=False),
+                        encoding="utf-8")
+
+    written = sum(b["records_written"] for b in log["blocks"])
+    dropped = sum(b["records_outside_years"] for b in log["blocks"])
+    unaccounted = [b for b in log["blocks"] if not b["accounted_for"]]
+
     print(f"\n{written:,} rows written to {csv_path}")
     print(f"{dropped:,} records dropped for falling outside "
           f"{config.YEAR_MIN} to {YEAR_MAX}")
+    print(f"Run log written to {log_path}")
+
+    if unaccounted:
+        print(f"\nWARNING: in {len(unaccounted)} block(s) the kept and the "
+              f"dropped records do not add up to what the server reported.")
+        for block in unaccounted:
+            print(f"  {block['subintervention']}: "
+                  f"{block['records_written']:,} kept + "
+                  f"{block['records_outside_years']:,} dropped != "
+                  f"{block['records_reported']:,} reported")
+    else:
+        print("\nIn every block the kept and the dropped records add up to "
+              "what the server reported.")
 
 
 if __name__ == "__main__":
