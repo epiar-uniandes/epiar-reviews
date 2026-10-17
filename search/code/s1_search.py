@@ -90,33 +90,49 @@ def openalex_date_filter():
 
 
 def get_with_retry(url, params, attempts=5):
-    """Send a request, waiting only when the wait is short.
+    """Send a request, retrying what is worth retrying.
 
-    A short 429 means we are sending requests too fast, so we wait and try
-    again. A long one means the daily budget is gone, and that is raised as
-    BudgetExhausted so the caller can save its progress and stop. Any other
-    error is raised, so a query that failed never passes silently as zero
-    records.
+    A short 429 means we are sending requests too fast, and a connection
+    that drops is usually the network, so both are retried with a growing
+    wait. A long 429 means the daily budget is gone, and that is raised as
+    BudgetExhausted so the caller can save its progress and stop. Anything
+    else is raised, so a query that failed never passes silently as zero
+    records. Every message is redacted first, because the URL carries the
+    API key and an unhandled error would otherwise print it.
     """
     wait = 2
     for attempt in range(1, attempts + 1):
-        response = requests.get(url, params=params, timeout=120)
-        if response.status_code != 429:
+        try:
+            response = requests.get(url, params=params, timeout=120)
+        except requests.exceptions.RequestException as error:
+            if attempt == attempts:
+                raise RuntimeError(
+                    f"the connection failed {attempts} times: "
+                    f"{redact(str(error))}") from None
+            print(f"    connection problem, retrying in {wait}s "
+                  f"(attempt {attempt} of {attempts})")
+            time.sleep(wait)
+            wait *= 2
+            continue
+
+        if response.status_code == 429:
+            header = response.headers.get("Retry-After", "")
+            pause = int(header) if header.isdigit() else wait
+            if pause > MAX_WAIT:
+                raise BudgetExhausted(pause)
+            if attempt < attempts:
+                print(f"    server asked to slow down, waiting {pause}s "
+                      f"(attempt {attempt} of {attempts})")
+                time.sleep(pause)
+                wait *= 2
+                continue
+
+        try:
             response.raise_for_status()
-            return response
+        except requests.exceptions.HTTPError as error:
+            raise RuntimeError(redact(str(error))) from None
 
-        header = response.headers.get("Retry-After", "")
-        pause = int(header) if header.isdigit() else wait
-        if pause > MAX_WAIT:
-            raise BudgetExhausted(pause)
-        if attempt == attempts:
-            response.raise_for_status()
-
-        print(f"    server asked to slow down, waiting {pause}s "
-              f"(attempt {attempt} of {attempts})")
-        time.sleep(pause)
-        wait *= 2
-
+        return response
 
 def abstract_from_inverted_index(index):
     """Rebuild the abstract from the inverted index OpenAlex returns.
